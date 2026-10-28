@@ -1,413 +1,88 @@
-"""Phase 3, part 1: k-NN attack classifier, compared with two simple baselines.
 
-Run after prepare.py, from the project root:
+"""Run the supervised model comparison pipeline."""
 
-    python -m src.supervised.models
-
-Reads  data/processed/train.parquet, test.parquet, scaler.joblib, feature_columns.json
-Writes results/metrics_knn.json, results/figures/confusion_matrix_knn.png,
-       data/processed/knn_model.joblib
-"""
-import json
-
-import joblib
 import mlflow
-import matplotlib
-
-matplotlib.use("Agg")  # draw to files, no window needed
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-from src.supervised.xgboost_model import StringLabelXGBClassifier
-from sklearn.dummy import DummyClassifier
-from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-)
-from sklearn.model_selection import train_test_split
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.pipeline import Pipeline
-from sklearn.utils.class_weight import compute_sample_weight
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
 
 from src import config
 from src.mlflow_tracking import configure_tracking
+from src.supervised.data import N_FEATURES, load_scaled, select_features
+from src.supervised.evaluation import build_results, evaluate, plot_confusion
+from src.supervised.reporting import print_summary, save_outputs
+from src.supervised.tracking import log_comparison, log_model_runs as _log_model_runs
 
-N_FEATURES = 20  # keep the 20 most useful features (k-NN gets slow and noisy with too many)
-K_CHOICES = [3, 5, 7, 9, 11, 13, 15]  # odd values of k avoid ties between two classes
-WEIGHT_CHOICES = ["uniform", "distance"]  # distance: closer neighbours get a bigger vote
-TUNING_ROWS = 40_000  # choose k on a subset, so the search stays fast
-
-
-def load_scaled():
-    """Load the train/test files from Phase 2 and apply the saved scaler."""
-    train = pd.read_parquet(config.DATA_PROCESSED / "train.parquet")
-    test = pd.read_parquet(config.DATA_PROCESSED / "test.parquet")
-    scaler = joblib.load(config.DATA_PROCESSED / "scaler.joblib")
-    cols = json.loads((config.DATA_PROCESSED / "feature_columns.json").read_text())
-
-    X_train = scaler.transform(train[cols]).astype("float32")
-    X_test = scaler.transform(test[cols]).astype("float32")
-    return X_train, train["family"].to_numpy(), X_test, test["family"].to_numpy(), cols
-
-
-def select_features(X_train, y_train, cols, k=N_FEATURES):
-    """Pick the k features that best separate the families (ANOVA F-score).
-
-    Fitted on training data only, like the scaler, to avoid leaking test information.
-    """
-    k = min(k, X_train.shape[1])
-    selector = SelectKBest(f_classif, k=k).fit(X_train, y_train)
-    chosen = [c for c, keep in zip(cols, selector.get_support()) if keep]
-    return selector, chosen
-
-
-def choose_k(X, y, seed=config.SEED):
-    """Try each (k, weights) pair on a validation split of the TRAINING data.
-
-    The test set is never used here. It stays untouched until the final score.
-    Returns the best k, the best weighting, and a table of every score.
-    """
-    if len(X) > TUNING_ROWS:
-        X, _, y, _ = train_test_split(X, y, train_size=TUNING_ROWS, stratify=y, random_state=seed)
-    X_fit, X_val, y_fit, y_val = train_test_split(
-        X, y, test_size=0.25, stratify=y, random_state=seed
-    )
-
-    rows = []
-    for weights in WEIGHT_CHOICES:
-        for k in K_CHOICES:
-            model = KNeighborsClassifier(n_neighbors=k, weights=weights, n_jobs=-1)
-            model.fit(X_fit, y_fit)
-            score = f1_score(y_val, model.predict(X_val), average="macro")
-            rows.append({"k": k, "weights": weights, "macro_f1": score})
-
-    table = pd.DataFrame(rows)
-    best = table.sort_values("macro_f1", ascending=False).iloc[0]
-    return int(best["k"]), str(best["weights"]), table
-
-
-def evaluate(y_true, y_pred):
-    """Accuracy, macro F1 and per-family precision / recall / F1."""
-    report = classification_report(y_true, y_pred, output_dict=True, zero_division=0)
-    per_family = {
-        name: {m: round(vals[m], 4) for m in ("precision", "recall", "f1-score")}
-        for name, vals in report.items()
-        if name not in ("accuracy", "macro avg", "weighted avg")
-    }
-    return {
-        "accuracy": round(accuracy_score(y_true, y_pred), 4),
-        "macro_f1": round(f1_score(y_true, y_pred, average="macro"), 4),
-        "per_family": per_family,
-    }
-
-
-def plot_confusion(y_true, y_pred, path):
-    """Confusion matrix: rows are the true family, columns the predicted family.
-
-    Each cell shows the share of that true family (so each row adds up to 100%),
-    which keeps rare families visible next to the huge Benign row.
-    """
-    labels = [f for f in config.FAMILIES if f in set(y_true) | set(y_pred)]
-    counts = confusion_matrix(y_true, y_pred, labels=labels)
-    shares = counts / counts.sum(axis=1, keepdims=True).clip(min=1)
-
-    fig, ax = plt.subplots(figsize=(6, 5))
-    ax.imshow(shares, cmap="Blues", vmin=0, vmax=1)
-    ax.set_xticks(range(len(labels)))
-    ax.set_xticklabels(labels, rotation=30, ha="right")
-    ax.set_yticks(range(len(labels)))
-    ax.set_yticklabels(labels)
-    ax.set_xlabel("Predicted family")
-    ax.set_ylabel("True family")
-    ax.set_title("k-NN on the test set (share of each true family)")
-    for i in range(len(labels)):
-        for j in range(len(labels)):
-            colour = "white" if shares[i, j] > 0.5 else "black"
-            ax.text(j, i, f"{shares[i, j]:.1%}\n({counts[i, j]:,})",
-                    ha="center", va="center", fontsize=8, color=colour)
-    fig.tight_layout()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
-
-
-def _log_model_runs(models, results, selector, X_train, cols) -> None:
-    """Log each fitted classifier and its test metrics as a child MLflow run."""
-    for model_name, estimator in models.items():
-        model_results = results[model_name]
-        pipeline = Pipeline(
-            steps=[("feature_selector", selector), ("classifier", estimator)]
-        )
-        with mlflow.start_run(run_name=model_name, nested=True):
-            mlflow.set_tags(
-                {
-                    "model_name": model_name,
-                    "model_library": "scikit-learn",
-                }
-            )
-            mlflow.log_params(
-                {
-                    "training_rows": len(X_train),
-                    "input_feature_count": len(cols),
-                    "selected_feature_count": selector.get_support().sum(),
-                    **{
-                        f"estimator_{name}": str(value)
-                        for name, value in estimator.get_params(deep=False).items()
-                    },
-                }
-            )
-            mlflow.log_metrics(
-                {
-                    "test_accuracy": model_results["accuracy"],
-                    "test_macro_f1": model_results["macro_f1"],
-                    **{
-                        f"test_{family}_{metric}": value
-                        for family, family_metrics in model_results["per_family"].items()
-                        for metric, value in family_metrics.items()
-                    },
-                }
-            )
-            mlflow.sklearn.log_model(
-                sk_model=pipeline,
-                name="model",
-                serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
-                input_example=X_train[:5],
-            )
-
+from src.supervised.training import (
+    K_CHOICES,
+    TUNING_ROWS,
+    WEIGHT_CHOICES,
+    choose_k,
+    train_models,
+)
+from src.supervised.xgboost_model import StringLabelXGBClassifier
 
 def _run_models() -> None:
+
+    # Load scaled training/test data, labels, and feature names
     X_train, y_train, X_test, y_test, cols = load_scaled()
     print(f"Train: {X_train.shape[0]:,} rows   Test: {X_test.shape[0]:,} rows")
 
+    # Select the 20 most useful features using training data only
     selector, chosen = select_features(X_train, y_train, cols)
+
     X_train_all_features = X_train
-    X_train, X_test = selector.transform(X_train), selector.transform(X_test)
+
+    # Apply the same feature selection to training and test data
+    X_train_selected = selector.transform(X_train)
+    X_test_selected = selector.transform(X_test)
     print(f"Kept {len(chosen)} of {len(cols)} features")
 
+    # Tune KNN hyperparameters using a validation split of training data
     print("\nChoosing k on a validation split of the training data ...")
-    best_k, best_weights, table = choose_k(X_train, y_train)
+    best_k, best_weights, table = choose_k(X_train_selected, y_train)
     print(table.sort_values("macro_f1", ascending=False).round(4).to_string(index=False))
     print(f"\nBest: k={best_k}, weights={best_weights}")
 
-    print("\nTraining the final k-NN on all training rows and scoring the test set "
-          "(this can take a few minutes) ...")
-    knn = KNeighborsClassifier(n_neighbors=best_k, weights=best_weights, n_jobs=-1)
-    knn.fit(X_train, y_train)
-    knn_pred = knn.predict(X_test)
-
-    baseline = DummyClassifier(strategy="most_frequent").fit(X_train, y_train)
-    tree = DecisionTreeClassifier(max_depth=12, random_state=config.SEED).fit(X_train, y_train)
-
-    tree_pred = tree.predict(X_test)
-    labels = [f for f in config.FAMILIES if f in set(y_test) | set(knn_pred)]
-
-    print("\nTraining the random forest ...")
-    forest = RandomForestClassifier(
-        n_estimators=200,
-        max_depth=None,
-        min_samples_leaf=2,
-        class_weight="balanced_subsample",  # gives rare attack families more weight
-        n_jobs=-1,
-        random_state=config.SEED,
-    ).fit(X_train, y_train)
-    forest_pred = forest.predict(X_test)
-
-    print("\nTraining XGBoost ...")
-    xgboost = StringLabelXGBClassifier(
-        n_estimators=300,
-        max_depth=8,
-        learning_rate=0.1,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        min_child_weight=2,
-        n_jobs=-1,
-        random_state=config.SEED,
-    )
-    xgboost.fit(
-        X_train,
+    # Train all classifiers and generate predictions on the test data
+    estimators, predictions = train_models(
+        X_train_selected,
         y_train,
-        sample_weight=compute_sample_weight("balanced", y_train),
-    )
-    xgboost_pred = xgboost.predict(X_test)
-
-    results = {
-        "majority_baseline": evaluate(y_test, baseline.predict(X_test)),
-        "decision_tree": {
-            **evaluate(y_test, tree_pred),
-            "confusion": confusion_matrix(y_test, tree_pred, labels=labels).tolist(),
-        },
-
-         "random_forest": {
-            **evaluate(y_test, forest_pred),
-            "confusion": confusion_matrix(y_test, forest_pred, labels=labels).tolist(),
-            "feature_importance": {
-                f: round(float(w), 4)
-                for f, w in sorted(zip(chosen, forest.feature_importances_),
-                                   key=lambda x: -x[1])
-            },
-        },
-        "xgboost": {
-            **evaluate(y_test, xgboost_pred),
-            "confusion": confusion_matrix(y_test, xgboost_pred, labels=labels).tolist(),
-            "feature_importance": {
-                f: round(float(w), 4)
-                for f, w in sorted(zip(chosen, xgboost.feature_importances_),
-                                   key=lambda x: -x[1])
-            },
-        },
-        "knn": {
-            "k": best_k, "weights": best_weights,
-            **evaluate(y_test, knn_pred),
-            "confusion": confusion_matrix(y_test, knn_pred, labels=labels).tolist(),
-        },
-        "labels": labels,
-        "tuning": table.round(4).to_dict("records"),
-        "features_used": chosen,
-    }
-
-    config.RESULTS.mkdir(parents=True, exist_ok=True)
-    (config.RESULTS / "metrics_knn.json").write_text(json.dumps(results, indent=2))
-    plot_confusion(y_test, knn_pred, config.RESULTS / "figures" / "confusion_matrix_knn.png")
-    joblib.dump(
-        {"model": knn, "selector": selector, "features": cols},
-        config.DATA_PROCESSED / "knn_model.joblib",
-    )
-    joblib.dump(
-        {"model": tree, "selector": selector, "features": cols},
-        config.DATA_PROCESSED / "tree_model.joblib",
-    )
-    joblib.dump(
-        {"model": forest, "selector": selector, "features": cols},
-        config.DATA_PROCESSED / "forest_model.joblib",
-    )
-    joblib.dump(
-        {"model": xgboost, "selector": selector, "features": cols},
-        config.DATA_PROCESSED / "xgboost_model.joblib",
-    )
-    print("\nTest-set results")
-    
-    models = ("knn", "decision_tree", "random_forest", "xgboost", "majority_baseline")
-    names = {
-        "knn": "k-NN",
-        "decision_tree": "decision tree",
-        "random_forest": "random forest",
-        "xgboost": "XGBoost",
-        "majority_baseline": "always say Benign",
-    }
-
-    summary = pd.DataFrame(
-        {
-            "accuracy": [results[m]["accuracy"] for m in models],
-            "macro_f1": [results[m]["macro_f1"] for m in models],
-        },
-        index=[names[m] for m in models],
-    )
-    print(summary.to_string())
-
-    for m in ("knn", "decision_tree", "random_forest", "xgboost"):
-        print(f"\n{names[m]}: recall and precision per family "
-              f"(recall = share of real attacks it caught)")
-        for family, vals in results[m]["per_family"].items():
-            print(f"  {family:<11} recall {vals['recall']:.3f}   "
-                  f"precision {vals['precision']:.3f}")
-
-    print("\nTop 5 features by random forest importance")
-    for f, w in list(results["random_forest"]["feature_importance"].items())[:5]:
-        print(f"  {f:<28}{w:.4f}")
-
-    print("\nTop 5 features by XGBoost importance")
-    for f, w in list(results["xgboost"]["feature_importance"].items())[:5]:
-        print(f"  {f:<28}{w:.4f}")
-
-    mlflow.log_params(
-        {
-            "random_seed": config.SEED,
-            "training_rows": len(y_train),
-            "testing_rows": len(y_test),
-            "input_feature_count": len(cols),
-            "selected_feature_count": len(chosen),
-            "selected_features": ", ".join(chosen),
-            "knn_k": best_k,
-            "knn_weights": best_weights,
-            "knn_candidate_k": ", ".join(map(str, K_CHOICES)),
-            "knn_candidate_weights": ", ".join(WEIGHT_CHOICES),
-            "tuning_rows_limit": TUNING_ROWS,
-            "decision_tree_max_depth": 12,
-            "random_forest_n_estimators": 200,
-            "random_forest_min_samples_leaf": 2,
-            "random_forest_class_weight": "balanced_subsample",
-            "xgboost_n_estimators": 300,
-            "xgboost_max_depth": 8,
-            "xgboost_learning_rate": 0.1,
-            "xgboost_subsample": 0.9,
-            "xgboost_colsample_bytree": 0.9,
-            "xgboost_sample_weight": "balanced",
-        }
-    )
-    for model_name in (
-        "knn",
-        "decision_tree",
-        "random_forest",
-        "xgboost",
-        "majority_baseline",
-    ):
-        model_results = results[model_name]
-        mlflow.log_metrics(
-            {
-                f"{model_name}_accuracy": model_results["accuracy"],
-                f"{model_name}_macro_f1": model_results["macro_f1"],
-            }
-        )
-        for family, metrics in model_results["per_family"].items():
-            mlflow.log_metrics(
-                {
-                    f"{model_name}_{family}_precision": metrics["precision"],
-                    f"{model_name}_{family}_recall": metrics["recall"],
-                    f"{model_name}_{family}_f1": metrics["f1-score"],
-                }
-            )
-
-    _log_model_runs(
-        {
-            "knn": knn,
-            "decision_tree": tree,
-            "random_forest": forest,
-            "xgboost": xgboost,
-            "majority_baseline": baseline,
-        },
-        results,
-        selector,
-        X_train_all_features,
-        cols,
+        X_test_selected,
+        best_k,
+        best_weights,
     )
 
-    tuning_path = config.RESULTS / "knn_tuning.csv"
-    table.to_csv(tuning_path, index=False)
-    for artifact in (
-        config.RESULTS / "metrics_knn.json",
-        config.RESULTS / "figures" / "confusion_matrix_knn.png",
-        tuning_path,
-        config.DATA_PROCESSED / "knn_model.joblib",
-        config.DATA_PROCESSED / "tree_model.joblib",
-        config.DATA_PROCESSED / "forest_model.joblib",
-        config.DATA_PROCESSED / "xgboost_model.joblib",
-    ):
-        mlflow.log_artifact(str(artifact), artifact_path="model-results")
+    # Calculate metrics and confusion matrices
+    results = build_results(
+        y_test, predictions, estimators, chosen,
+        best_k, best_weights, table,
+    )
 
-    print(f"\nSaved {config.RESULTS / 'metrics_knn.json'}")
-    print(f"Saved {config.RESULTS / 'figures' / 'confusion_matrix_knn.png'}")
+    # Save results and print a readable performance summary
+    save_outputs(results, estimators, selector, cols, table, y_test, predictions)
+    print_summary(results)
+
+    # Record parameters, metrics, models, and files in MLflow
+    log_comparison(
+        results=results,
+        estimators=estimators,
+        selector=selector,
+        X_train=X_train_all_features,
+        y_train=y_train,
+        y_test=y_test,
+        cols=cols,
+        chosen=chosen,
+        best_k=best_k,
+        best_weights=best_weights,
+        table=table,
+    )
 
 
 def main() -> None:
+    # Configure MLflow, then create a parent run for this experiment
     configure_tracking()
     with mlflow.start_run(run_name="supervised-model-comparison"):
         _run_models()
 
 
+# Run the pipeline when this file is executed directly
 if __name__ == "__main__":
     main()

@@ -1,0 +1,30 @@
+From PowerShell, run these commands from the AI-ML project folder.
+
+
+//  navigate to current working directory 
+cd "C:\Users\harsh\OneDrive\Desktop\Final_version _ Sentrix\harshada AIML\AI-ML"
+
+
+First-time setup (requires Python 3.12 64-bit; keep this environment outside OneDrive):
+
+$venv = Join-Path $env:LOCALAPPDATA 'venvs\sentrix312'
+py -3.12 -m venv $venv
+& "$venv\Scripts\python.exe" -m pip install --upgrade pip
+& "$venv\Scripts\python.exe" -m pip install -r requirements.txt
+
+Start the dashboard:
+
+& "$venv\Scripts\python.exe" -m streamlit run dashboard.py
+
+To rebuild the data and models (optional):
+
+& "$venv\Scripts\python.exe" -m src.preprocess.clean
+& "$venv\Scripts\python.exe" -m src.preprocess.prepare
+& "$venv\Scripts\python.exe" -m src.supervised.models
+
+To view MLflow runs in a separate PowerShell window:
+
+$venv = Join-Path $env:LOCALAPPDATA 'venvs\sentrix312'
+& "$venv\Scripts\python.exe" -m mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db
+
+Then open http://127.0.0.1:5000.

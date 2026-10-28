@@ -1,6 +1,7 @@
 
 # Python environment
 .venv/
+.venv*/
 venv/
 env/
 __pycache__/
@@ -39,5 +40,5 @@ models/
 *.pt
 *.pth
 
-// temporary to avoid large files 
+# Temporary large raw CSV files
 data/raw_unused/*.csv
