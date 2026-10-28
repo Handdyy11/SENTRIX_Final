@@ -22,6 +22,8 @@ traffic and trying predictions, and local MLflow tracking for experiments.
   matrices, and feature importance where supported.
 - Tracks experiment parameters, metrics, models, and artifacts locally with
   MLflow.
+- Benchmarks Isolation Forest and K-Means against the trained supervised
+  models for binary attack detection.
 - Provides a Streamlit dashboard with dataset overview, model results, live
   single-flow detection, traffic simulation, and an About page. Live Detection
   constrains edited feature values to the observed data range.
@@ -136,6 +138,19 @@ The stages are:
 
 Preprocessing can take time because it reads the raw data in chunks. Do not
 run the model comparison until preparation has completed successfully.
+
+## Run the unsupervised benchmark
+
+From the project root, use the same local Python environment as the dashboard:
+
+```powershell
+$venv = Join-Path $env:LOCALAPPDATA 'venvs\sentrix312'
+& "$venv\Scripts\python.exe" -m src.supervised.unsupervised_benchmark
+```
+
+The benchmark evaluates Isolation Forest and K-Means, then compares them with
+the saved Random Forest and XGBoost models. It writes
+`results/unsupervised_comparison.json`.
 
 ## View MLflow experiments
 

@@ -1,0 +1,164 @@
+{
+  "isolation_forest": {
+    "roc_auc": 0.42,
+    "average_precision": 0.5266,
+    "accuracy": 0.5049,
+    "precision": 0.5325,
+    "recall": 0.502,
+    "f1": 0.5168,
+    "confusion": [
+      [
+        8640,
+        8360
+      ],
+      [
+        9445,
+        9521
+      ]
+    ],
+    "flagged_share_per_family": {
+      "Benign": 0.4918,
+      "BruteForce": 0.7059,
+      "DoS": 0.8995,
+      "PortScan": 0.0047
+    }
+  },
+  "kmeans": {
+    "k": 10,
+    "silhouette_test": 0.755,
+    "purity": 0.8626,
+    "adjusted_rand_index": 0.3774,
+    "normalized_mutual_info": 0.5089,
+    "homogeneity": 0.653,
+    "completeness": 0.4169,
+    "cluster_to_family": {
+      "0": "Benign",
+      "1": "DoS",
+      "2": "PortScan",
+      "3": "DoS",
+      "4": "Benign",
+      "5": "Benign",
+      "6": "Benign",
+      "7": "Benign",
+      "8": "DoS",
+      "9": "Benign"
+    },
+    "family_prediction": {
+      "accuracy": 0.8626,
+      "macro_f1": 0.6619,
+      "per_family": {
+        "Benign": {
+          "precision": 0.8771,
+          "recall": 0.9276,
+          "f1-score": 0.9017
+        },
+        "BruteForce": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1-score": 0.0
+        },
+        "DoS": {
+          "precision": 0.9862,
+          "recall": 0.8094,
+          "f1-score": 0.8891
+        },
+        "PortScan": {
+          "precision": 0.7518,
+          "recall": 0.9961,
+          "f1-score": 0.8569
+        }
+      }
+    },
+    "cluster_sizes_test": {
+      "0": 7457,
+      "1": 5083,
+      "2": 10600,
+      "3": 939,
+      "4": 1435,
+      "5": 502,
+      "6": 6497,
+      "7": 1756,
+      "8": 1365,
+      "9": 332
+    }
+  },
+  "tuning": [
+    {
+      "k": 2,
+      "silhouette": 0.7126,
+      "inertia": 235814.4844
+    },
+    {
+      "k": 3,
+      "silhouette": 0.6662,
+      "inertia": 179642.8594
+    },
+    {
+      "k": 4,
+      "silhouette": 0.5794,
+      "inertia": 131111.6562
+    },
+    {
+      "k": 5,
+      "silhouette": 0.6238,
+      "inertia": 100784.7969
+    },
+    {
+      "k": 6,
+      "silhouette": 0.7319,
+      "inertia": 80817.0859
+    },
+    {
+      "k": 7,
+      "silhouette": 0.7037,
+      "inertia": 65300.8086
+    },
+    {
+      "k": 8,
+      "silhouette": 0.7326,
+      "inertia": 55347.1445
+    },
+    {
+      "k": 9,
+      "silhouette": 0.7474,
+      "inertia": 44764.7188
+    },
+    {
+      "k": 10,
+      "silhouette": 0.7499,
+      "inertia": 39874.1484
+    },
+    {
+      "k": 11,
+      "silhouette": 0.7226,
+      "inertia": 37067.7617
+    },
+    {
+      "k": 12,
+      "silhouette": 0.7299,
+      "inertia": 34477.4062
+    }
+  ],
+  "features_used": [
+    "Protocol",
+    "Flow Duration",
+    "Bwd Packet Length Max",
+    "Bwd Packet Length Mean",
+    "Bwd Packet Length Std",
+    "Flow IAT Std",
+    "Flow IAT Max",
+    "Fwd IAT Total",
+    "Fwd IAT Std",
+    "Fwd IAT Max",
+    "Max Packet Length",
+    "Packet Length Mean",
+    "Packet Length Std",
+    "Packet Length Variance",
+    "PSH Flag Count",
+    "Average Packet Size",
+    "Avg Bwd Segment Size",
+    "Idle Mean",
+    "Idle Max",
+    "Idle Min"
+  ]
+}

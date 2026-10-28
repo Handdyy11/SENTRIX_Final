@@ -564,7 +564,7 @@ def show_chart(chart):
         .configure_legend(labelColor=t["sub"], titleColor=t["sub"])
         .configure_view(stroke=None)
     )
-    st.altair_chart(styled, width="stretch", theme=None)
+    st.altair_chart(styled, use_container_width=True, theme=None)
 
 
 def feature_input(feat, row, key, guide=None):
@@ -1057,12 +1057,12 @@ def page_home():
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.button("Try live detection", type="primary", width="stretch", key="cta_live",
+        st.button("Try live detection", type="primary", use_container_width=True, key="cta_live",
                   on_click=go, args=("Live Detection",))
     with c2:
-        st.button("Run a simulation", width="stretch", key="cta_sim", on_click=go, args=("Simulation",))
+        st.button("Run a simulation", use_container_width=True, key="cta_sim", on_click=go, args=("Simulation",))
     with c3:
-        st.button("Explore the data", width="stretch", key="cta_data", on_click=go, args=("Overview",))
+        st.button("Explore the data", use_container_width=True, key="cta_data", on_click=go, args=("Overview",))
 
     items = home_stats()
     st.write("")
@@ -1258,7 +1258,220 @@ def page_models():
         "infiltration). The train/test split is random. The weakest family is BruteForce."
     )
 
+# Page: U Models
+def unsup_flagged_chart(shares):
+    families = list(shares)
+    df = pd.DataFrame({"family": families, "flagged": [shares[f] for f in families]})
+    return (
+        alt.Chart(df)
+        .mark_bar(cornerRadiusEnd=4)
+        .encode(
+            y=alt.Y("family:N", sort=families, title=None),
+            x=alt.X("flagged:Q", scale=alt.Scale(domain=[0, 1]), title="Share flagged as anomaly"),
+            color=alt.Color(
+                "family:N",
+                scale=alt.Scale(domain=list(FAMILY_COLORS), range=list(FAMILY_COLORS.values())),
+                legend=None,
+            ),
+            tooltip=["family", alt.Tooltip("flagged:Q", format=".1%")],
+        )
+        .properties(height=200)
+    )
 
+
+def unsup_k_chart(tuning, best_k, field, title):
+    df = pd.DataFrame(tuning)
+    line = (
+        alt.Chart(df)
+        .mark_line(point=True, color="#38bdf8")
+        .encode(
+            x=alt.X("k:O", title="Number of clusters (k)"),
+            y=alt.Y(f"{field}:Q", title=title, scale=alt.Scale(zero=False)),
+            tooltip=["k", alt.Tooltip(f"{field}:Q", format=",.4f", title=title)],
+        )
+    )
+    best = (
+        alt.Chart(df[df["k"] == best_k])
+        .mark_point(size=180, filled=True, color="#f59e0b")
+        .encode(x="k:O", y=f"{field}:Q")
+    )
+    return (line + best).properties(height=260)
+
+
+def unsup_cluster_heatmap(contingency):
+    totals = contingency.sum(axis=1).clip(lower=1)
+    shares = contingency.div(totals, axis=0)
+
+    long = shares.reset_index(names="cluster").melt(
+        id_vars="cluster", var_name="family", value_name="share"
+    )
+    counts = contingency.reset_index(names="cluster").melt(
+        id_vars="cluster", var_name="family", value_name="rows"
+    )
+    long["rows"] = counts["rows"]
+    long["cluster"] = long["cluster"].astype(str)
+    order = [str(c) for c in contingency.index]
+
+    base = alt.Chart(long).encode(
+        x=alt.X("family:N", title=None, axis=alt.Axis(labelAngle=0)),
+        y=alt.Y("cluster:N", title="Cluster", sort=order),
+    )
+    rect = base.mark_rect().encode(
+        color=alt.Color(
+            "share:Q",
+            scale=alt.Scale(scheme="blues", domain=[0, 1]),
+            title="Share of cluster",
+        ),
+        tooltip=[
+            "cluster",
+            "family",
+            alt.Tooltip("share:Q", format=".1%"),
+            alt.Tooltip("rows:Q", format=","),
+        ],
+    )
+    text = base.mark_text(fontSize=11).encode(
+        text=alt.Text("share:Q", format=".0%"),
+        color=alt.condition("datum.share > 0.5", alt.value("white"), alt.value("#0b1220")),
+    )
+    return (rect + text).properties(height=max(200, 34 * len(order)))
+
+
+def page_unsupervised():
+    page_header(
+        "U Models",
+        "Unsupervised models fitted without labels: Isolation Forest and K-Means clustering.",
+    )
+    res = read_json("metrics_unsupervised.json")
+    if res is None:
+        st.error("Run `python -m src.unsupervised_models` first.")
+        return
+
+    iforest = res["isolation_forest"]
+    km = res["kmeans"]
+
+    section("Summary")
+    k = st.columns(4)
+    with k[0]:
+        kpi("Isolation Forest ROC AUC", f"{iforest['roc_auc']:.4f}", "attack vs benign", "#38bdf8")
+    with k[1]:
+        kpi("Attacks caught", f"{iforest['recall']:.2%}", "Isolation Forest recall", "#22c55e")
+    with k[2]:
+        kpi("K-Means clusters", f"{km['k']}", "chosen by silhouette score", "#a78bfa")
+    with k[3]:
+        kpi("Cluster purity", f"{km['purity']:.2%}", "K-Means on the test set", "#f59e0b")
+
+    section("Isolation Forest")
+    left, right = st.columns(2)
+    with left:
+        with card():
+            st.markdown("##### Test-set scores")
+            scores = pd.DataFrame(
+                {
+                    "Score": {
+                        "ROC AUC": iforest["roc_auc"],
+                        "Average precision": iforest["average_precision"],
+                        "Accuracy": iforest["accuracy"],
+                        "Precision": iforest["precision"],
+                        "Recall": iforest["recall"],
+                        "F1": iforest["f1"],
+                    }
+                }
+            )
+            scores.index.name = "Metric"
+            show_table(scores, bars=("Score",), float_fmt="{:.4f}")
+            st.caption("Every attack family is treated as one anomaly class against Benign.")
+    with right:
+        with card():
+            st.markdown("##### Attack vs benign")
+            import matplotlib.pyplot as plt
+
+            fig = plot_confusion(iforest["confusion"], ["Benign", "Attack"], "Isolation Forest")
+            st.pyplot(fig)
+            plt.close(fig)
+
+    with card():
+        st.markdown("##### Share of each family flagged as an anomaly")
+        show_chart(unsup_flagged_chart(iforest["flagged_share_per_family"]))
+        st.caption(
+            "For Benign this is the false alarm rate. "
+            "For the attack families it is the detection rate."
+        )
+
+    score_plot = config.RESULTS / "figures" / "iforest_score_distribution.png"
+    if score_plot.exists():
+        with st.expander("Anomaly score distribution"):
+            st.image(str(score_plot))
+
+    section("K-Means clustering")
+    with card():
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("##### Silhouette score by k")
+            show_chart(unsup_k_chart(res["tuning"], km["k"], "silhouette", "Silhouette score"))
+            st.caption("Higher is better. The orange point is the chosen k.")
+        with c2:
+            st.markdown("##### Elbow plot")
+            show_chart(unsup_k_chart(res["tuning"], km["k"], "inertia", "Inertia"))
+            st.caption("Inertia always falls as k grows. Look for where the drop flattens.")
+
+    left, right = st.columns(2)
+    with left:
+        with card():
+            st.markdown("##### Cluster quality on the test set")
+            quality = pd.DataFrame(
+                {
+                    "Score": {
+                        "Silhouette": km["silhouette_test"],
+                        "Purity": km["purity"],
+                        "Adjusted Rand index": km["adjusted_rand_index"],
+                        "Normalized mutual info": km["normalized_mutual_info"],
+                        "Homogeneity": km["homogeneity"],
+                        "Completeness": km["completeness"],
+                    }
+                }
+            )
+            quality.index.name = "Metric"
+            show_table(quality, bars=("Score",), float_fmt="{:.4f}")
+    with right:
+        with card():
+            st.markdown("##### What each cluster represents")
+            names = pd.DataFrame(
+                [
+                    {
+                        "Cluster": int(c),
+                        "Named after": family,
+                        "Test rows": int(km["cluster_sizes_test"].get(c, 0)),
+                    }
+                    for c, family in km["cluster_to_family"].items()
+                ]
+            )
+            show_table(names, show_index=False, badges={"Named after": FAMILY_COLORS})
+            st.caption("Each cluster is named after the most common family in its training rows.")
+
+    heatmap_path = config.RESULTS / "kmeans_cluster_family_test.csv"
+    if heatmap_path.exists():
+        with card():
+            st.markdown("##### Family mix inside each cluster (test set)")
+            contingency = pd.read_csv(heatmap_path, index_col=0)
+            show_chart(unsup_cluster_heatmap(contingency))
+            st.caption("A dark single cell per row means the cluster is almost pure.")
+
+    with card():
+        family_pred = km["family_prediction"]
+        st.markdown("##### K-Means used as a family classifier")
+        st.caption(
+            f"Accuracy {family_pred['accuracy']:.2%}, macro F1 {family_pred['macro_f1']:.4f}. "
+            "Each test flow gets the family name of its nearest cluster."
+        )
+        df = per_family_table(family_pred)
+        bar_cols = [c for c in ("Precision", "Recall", "F1") if c in df.columns]
+        show_table(df, bars=bar_cols)
+
+    st.info(
+        "These models never see labels while fitting. The 20 input features were chosen using "
+        "labels, the same as the supervised models, and Isolation Forest uses the attack share "
+        "of the training data as its contamination setting."
+    )
 # Page: Live Detection
 def page_predict():
     page_header("Live Detection", "Load or edit a single network flow and see how SENTRIX classifies it.")
@@ -1308,7 +1521,7 @@ def page_predict():
     bar = st.columns(len(scenario_buttons))
     for i, (label, family) in enumerate(scenario_buttons):
         with bar[i]:
-            if st.button(label, key=f"scenario_{i}", width="stretch"):
+            if st.button(label, key=f"scenario_{i}", use_container_width=True):
                 if family is None:
                     st.session_state.pos = random_flow_position(test)
                     row = test.iloc[st.session_state.pos]
@@ -1662,6 +1875,7 @@ PAGES = {
     "Home": page_home,
     "Overview": page_data,
     "Models": page_models,
+    "U Models": page_unsupervised,
     "Live Detection": page_predict,
     "Simulation": page_simulation,
 }
@@ -1688,7 +1902,7 @@ def main():
                 "☀️  Light mode" if is_dark else "🌙  Dark mode",
                 key="theme_btn",
                 on_click=toggle_theme,
-                width="stretch",
+                use_container_width=True,
             )
 
     PAGES[st.session_state.nav]()

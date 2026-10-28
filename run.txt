@@ -22,6 +22,10 @@ To rebuild the data and models (optional):
 & "$venv\Scripts\python.exe" -m src.preprocess.prepare
 & "$venv\Scripts\python.exe" -m src.supervised.models
 
+To run the unsupervised benchmark:
+
+& "$venv\Scripts\python.exe" -m src.supervised.unsupervised_benchmark
+
 To view MLflow runs in a separate PowerShell window:
 
 $venv = Join-Path $env:LOCALAPPDATA 'venvs\sentrix312'

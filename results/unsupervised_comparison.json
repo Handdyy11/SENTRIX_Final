@@ -1,0 +1,138 @@
+{
+  "models": {
+    "Isolation Forest (Anomaly)": {
+      "accuracy": 0.646,
+      "recall_attack": 0.3538,
+      "fpr_false_alarm": 0.0281,
+      "precision": 0.9336,
+      "f1_score": 0.5131,
+      "tp": 6710,
+      "fp": 477,
+      "tn": 16523,
+      "fn": 12256
+    },
+    "K-Means (k=2 Clustering)": {
+      "accuracy": 0.6494,
+      "recall_attack": 0.3645,
+      "fpr_false_alarm": 0.0328,
+      "precision": 0.9253,
+      "f1_score": 0.523,
+      "tp": 6914,
+      "fp": 558,
+      "tn": 16442,
+      "fn": 12052
+    },
+    "Random Forest (Supervised)": {
+      "accuracy": 0.9907,
+      "recall_attack": 0.9849,
+      "fpr_false_alarm": 0.0028,
+      "precision": 0.9974,
+      "f1_score": 0.9911,
+      "tp": 18679,
+      "fp": 48,
+      "tn": 16952,
+      "fn": 287
+    },
+    "XGBoost (Supervised)": {
+      "accuracy": 0.9796,
+      "recall_attack": 0.9935,
+      "fpr_false_alarm": 0.0358,
+      "precision": 0.9687,
+      "f1_score": 0.9809,
+      "tp": 18843,
+      "fp": 609,
+      "tn": 16391,
+      "fn": 123
+    }
+  },
+  "per_family": {
+    "Isolation Forest (Anomaly)": {
+      "Benign": {
+        "Total Flows": 17000,
+        "Flagged as Attack": 477,
+        "Rate": 0.0281
+      },
+      "BruteForce": {
+        "Total Flows": 1965,
+        "Flagged as Attack": 0,
+        "Rate": 0.0
+      },
+      "DoS": {
+        "Total Flows": 9001,
+        "Flagged as Attack": 6701,
+        "Rate": 0.7445
+      },
+      "PortScan": {
+        "Total Flows": 8000,
+        "Flagged as Attack": 9,
+        "Rate": 0.0011
+      }
+    },
+    "K-Means (k=2 Clustering)": {
+      "Benign": {
+        "Total Flows": 17000,
+        "Flagged as Attack": 558,
+        "Rate": 0.0328
+      },
+      "BruteForce": {
+        "Total Flows": 1965,
+        "Flagged as Attack": 0,
+        "Rate": 0.0
+      },
+      "DoS": {
+        "Total Flows": 9001,
+        "Flagged as Attack": 6896,
+        "Rate": 0.7661
+      },
+      "PortScan": {
+        "Total Flows": 8000,
+        "Flagged as Attack": 18,
+        "Rate": 0.0022
+      }
+    },
+    "Random Forest (Supervised)": {
+      "Benign": {
+        "Total Flows": 17000,
+        "Flagged as Attack": 48,
+        "Rate": 0.0028
+      },
+      "BruteForce": {
+        "Total Flows": 1965,
+        "Flagged as Attack": 1827,
+        "Rate": 0.9298
+      },
+      "DoS": {
+        "Total Flows": 9001,
+        "Flagged as Attack": 8854,
+        "Rate": 0.9837
+      },
+      "PortScan": {
+        "Total Flows": 8000,
+        "Flagged as Attack": 7998,
+        "Rate": 0.9998
+      }
+    },
+    "XGBoost (Supervised)": {
+      "Benign": {
+        "Total Flows": 17000,
+        "Flagged as Attack": 609,
+        "Rate": 0.0358
+      },
+      "BruteForce": {
+        "Total Flows": 1965,
+        "Flagged as Attack": 1928,
+        "Rate": 0.9812
+      },
+      "DoS": {
+        "Total Flows": 9001,
+        "Flagged as Attack": 8917,
+        "Rate": 0.9907
+      },
+      "PortScan": {
+        "Total Flows": 8000,
+        "Flagged as Attack": 7998,
+        "Rate": 0.9998
+      }
+    }
+  }
+}
